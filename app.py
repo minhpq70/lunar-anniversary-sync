@@ -107,9 +107,9 @@ def index():
     events = []
     for row in rows:
         ev = dict(row)
-        # Find next upcoming solar date
+        # Find next upcoming solar date (thử tối đa 2 năm kể từ năm hiện tại)
         next_date = None
-        for yr in [today.year, today.year + 1]:
+        for yr in range(today.year, today.year + 3):
             sd = lunar_to_solar(yr, row['lunar_month'], row['lunar_day'], bool(row['is_leap']))
             if sd and sd >= today:
                 next_date = sd
