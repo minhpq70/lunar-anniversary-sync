@@ -407,12 +407,16 @@ async function syncToGoogle(id, btn) {
 }
 
 async function deleteEvent(id) {
-  if (!confirm('Xóa sự kiện này?')) return;
+  if (!confirm('Xóa sự kiện này? Nếu đã sync, các sự kiện trên Google Calendar cũng sẽ bị xóa.')) return;
   const res = await fetch(`/delete-event/${id}`, { method: 'DELETE' });
   const result = await res.json();
   if (result.success) {
     document.getElementById(`event-card-${id}`).remove();
-    showToast('Đã xóa sự kiện');
+    if (result.gcal_deleted > 0) {
+      showToast(`Đã xóa khỏi app và ${result.gcal_deleted} sự kiện trên Google Calendar`);
+    } else {
+      showToast('Đã xóa sự kiện');
+    }
   }
 }
 

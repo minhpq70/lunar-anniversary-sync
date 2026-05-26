@@ -46,6 +46,15 @@ def init_db():
         conn.commit()
     except sqlite3.OperationalError:
         pass
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS google_event_ids (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id INTEGER NOT NULL,
+            google_event_id TEXT NOT NULL,
+            solar_year INTEGER NOT NULL,
+            FOREIGN KEY (event_id) REFERENCES events(id)
+        )
+    ''')
     conn.commit()
     conn.close()
 
@@ -185,11 +194,33 @@ def save_event():
 @app.route('/delete-event/<int:event_id>', methods=['DELETE'])
 def delete_event(event_id):
     conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
     c = conn.cursor()
+
+    # Lấy danh sách Google Calendar event IDs nếu đã sync
+    c.execute('SELECT google_event_id FROM google_event_ids WHERE event_id = ?', (event_id,))
+    gcal_ids = [r['google_event_id'] for r in c.fetchall()]
+
+    c.execute('DELETE FROM google_event_ids WHERE event_id = ?', (event_id,))
     c.execute('DELETE FROM events WHERE id = ?', (event_id,))
     conn.commit()
     conn.close()
-    return jsonify({'success': True})
+
+    # Xóa trên Google Calendar nếu có
+    gcal_deleted = 0
+    gcal_errors = []
+    if gcal_ids:
+        creds = get_google_creds()
+        if creds:
+            service = build('calendar', 'v3', credentials=creds)
+            for gid in gcal_ids:
+                try:
+                    service.events().delete(calendarId='primary', eventId=gid).execute()
+                    gcal_deleted += 1
+                except Exception as e:
+                    gcal_errors.append(str(e))
+
+    return jsonify({'success': True, 'gcal_deleted': gcal_deleted, 'gcal_errors': gcal_errors})
 
 
 @app.route('/sync-to-google/<int:event_id>', methods=['POST'])
@@ -221,6 +252,7 @@ def sync_to_google(event_id):
     created = 0
     errors = []
     first_link = ''
+    google_event_ids = []
 
     for entry in solar_dates:
         description_parts = [
@@ -258,6 +290,7 @@ def sync_to_google(event_id):
             created += 1
             if created == 1:
                 first_link = result.get('htmlLink', '')
+            google_event_ids.append((event_id, result['id'], entry['lunar_year']))
         except Exception as e:
             errors.append(str(e))
 
@@ -266,6 +299,12 @@ def sync_to_google(event_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('UPDATE events SET synced_to_google = 1 WHERE id = ?', (event_id,))
+    if google_event_ids:
+        c.execute('DELETE FROM google_event_ids WHERE event_id = ?', (event_id,))
+        c.executemany(
+            'INSERT INTO google_event_ids (event_id, google_event_id, solar_year) VALUES (?, ?, ?)',
+            google_event_ids,
+        )
     conn.commit()
     conn.close()
 
