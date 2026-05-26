@@ -345,9 +345,26 @@ function renderPreviewTable(dates, reminderDays) {
     </table>`;
 }
 
-async function saveEvent() {
+async function saveEvent(force = false) {
   const data = getFormData();
   if (!data.name) { showToast('Vui lòng nhập tên sự kiện', 'danger'); return; }
+
+  if (!force) {
+    const dupRes = await fetch('/check-duplicate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const dupResult = await dupRes.json();
+    if (dupResult.duplicates.length > 0) {
+      const names = dupResult.duplicates.map(d => `"${d.name}"`).join(', ');
+      const confirm = window.confirm(
+        `Đã có sự kiện cùng ngày âm lịch: ${names}\n\nVẫn muốn thêm sự kiện mới?`
+      );
+      if (!confirm) return;
+    }
+  }
+
   try {
     const res = await fetch('/save-event', {
       method: 'POST',
@@ -371,7 +388,11 @@ async function syncToGoogle(id, btn) {
     const res = await fetch(`/sync-to-google/${id}`, { method: 'POST' });
     const result = await res.json();
     if (result.success) {
-      showToast(`Đã tạo ${result.created} sự kiện trên Google Calendar!`);
+      const msg = `Đã tạo ${result.created} sự kiện trên Google Calendar!`;
+      showToast(msg);
+      if (result.first_link) {
+        window.open(result.first_link, '_blank');
+      }
       setTimeout(() => location.reload(), 1000);
     } else {
       showToast(result.error || 'Lỗi đồng bộ', 'danger');

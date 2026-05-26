@@ -139,6 +139,21 @@ def preview():
         return jsonify({'success': False, 'error': str(e)}), 400
 
 
+@app.route('/check-duplicate', methods=['POST'])
+def check_duplicate():
+    data = request.json
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('''
+        SELECT id, name FROM events
+        WHERE lunar_month = ? AND lunar_day = ? AND is_leap = ?
+    ''', (int(data['lunar_month']), int(data['lunar_day']), 1 if data.get('is_leap') else 0))
+    existing = c.fetchall()
+    conn.close()
+    return jsonify({'duplicates': [{'id': r['id'], 'name': r['name']} for r in existing]})
+
+
 @app.route('/save-event', methods=['POST'])
 def save_event():
     data = request.json
@@ -205,6 +220,7 @@ def sync_to_google(event_id):
     attendees = [{'email': e} for e in cc_list]
     created = 0
     errors = []
+    first_link = ''
 
     for entry in solar_dates:
         description_parts = [
@@ -234,12 +250,14 @@ def sync_to_google(event_id):
             event_body['attendees'] = attendees
 
         try:
-            service.events().insert(
+            result = service.events().insert(
                 calendarId='primary',
                 body=event_body,
                 sendUpdates='all' if attendees else 'none',
             ).execute()
             created += 1
+            if created == 1:
+                first_link = result.get('htmlLink', '')
         except Exception as e:
             errors.append(str(e))
 
@@ -251,7 +269,7 @@ def sync_to_google(event_id):
     conn.commit()
     conn.close()
 
-    return jsonify({'success': True, 'created': created, 'errors': errors})
+    return jsonify({'success': True, 'created': created, 'errors': errors, 'first_link': first_link})
 
 
 @app.route('/auth/google')
@@ -267,6 +285,7 @@ def auth_google():
     )
     auth_url, state = flow.authorization_url(access_type='offline', prompt='consent')
     session['oauth_state'] = state
+    session['code_verifier'] = flow.code_verifier
     return redirect(auth_url)
 
 
@@ -279,6 +298,7 @@ def auth_callback():
         state=session.get('oauth_state'),
         redirect_uri=url_for('auth_callback', _external=True),
     )
+    flow.code_verifier = session.pop('code_verifier', None)
     flow.fetch_token(authorization_response=request.url)
     save_google_creds(flow.credentials)
     return redirect(url_for('index') + '?msg=google_connected')
@@ -293,4 +313,4 @@ def auth_logout():
 
 if __name__ == '__main__':
     init_db()
-    app.run(debug=True, port=5000, host='127.0.0.1')
+    app.run(debug=True, port=5001, host='127.0.0.1')
