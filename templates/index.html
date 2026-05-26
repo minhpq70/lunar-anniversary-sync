@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sự kiện Lịch Âm</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    body { background: #f8f5f0; font-family: 'Segoe UI', sans-serif; }
+    .navbar { background: linear-gradient(135deg, #c0392b, #8e1a0e); }
+    .card { border: none; box-shadow: 0 2px 8px rgba(0,0,0,.08); border-radius: 12px; }
+    .card-header { border-radius: 12px 12px 0 0 !important; }
+    .event-card { transition: transform .15s; cursor: default; }
+    .event-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,.12); }
+    .lunar-badge { background: #c0392b; color: white; font-size: .75rem; padding: 2px 8px; border-radius: 20px; }
+    .solar-badge { background: #2980b9; color: white; font-size: .75rem; padding: 2px 8px; border-radius: 20px; }
+    .synced-badge { background: #27ae60; }
+    #previewTable th { background: #c0392b; color: white; }
+    .past-row { opacity: .55; }
+    .toast-container { position: fixed; bottom: 1rem; right: 1rem; z-index: 9999; }
+    .form-label { font-weight: 500; }
+    .section-title { color: #8e1a0e; font-weight: 700; border-bottom: 2px solid #c0392b; padding-bottom: .4rem; margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+
+<nav class="navbar navbar-dark mb-4">
+  <div class="container">
+    <span class="navbar-brand fw-bold fs-5"><i class="bi bi-moon-stars-fill me-2"></i>Sự kiện Lịch Âm</span>
+    <div class="d-flex align-items-center gap-2">
+      {% if is_google_auth %}
+        <span class="badge bg-success"><i class="bi bi-google me-1"></i>Đã kết nối Google</span>
+        <a href="/auth/logout" class="btn btn-sm btn-outline-light">Ngắt kết nối</a>
+      {% elif has_credentials_file %}
+        <a href="/auth/google" class="btn btn-sm btn-light"><i class="bi bi-google me-1"></i>Kết nối Google Calendar</a>
+      {% else %}
+        <span class="badge bg-warning text-dark" data-bs-toggle="tooltip" title="Cần thêm file credentials.json">
+          <i class="bi bi-exclamation-triangle me-1"></i>Chưa cấu hình Google
+        </span>
+      {% endif %}
+    </div>
+  </div>
+</nav>
+
+{% if not has_credentials_file %}
+<div class="container mb-3">
+  <div class="alert alert-warning d-flex align-items-start gap-2" role="alert">
+    <i class="bi bi-info-circle-fill mt-1"></i>
+    <div>
+      <strong>Chưa có credentials.json.</strong> Để đồng bộ với Google Calendar, hãy xem hướng dẫn bên dưới.
+      <button class="btn btn-sm btn-warning ms-2" data-bs-toggle="modal" data-bs-target="#setupModal">Xem hướng dẫn</button>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="container">
+  <div class="row g-4">
+
+    <!-- Form thêm sự kiện -->
+    <div class="col-lg-4">
+      <div class="card">
+        <div class="card-header bg-danger text-white">
+          <i class="bi bi-plus-circle me-2"></i><strong>Thêm sự kiện mới</strong>
+        </div>
+        <div class="card-body">
+          <div class="mb-3">
+            <label class="form-label">Tên sự kiện <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="eventName" placeholder="VD: Giỗ Ông Nội">
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label">Tháng âm lịch</label>
+              <select class="form-select" id="lunarMonth">
+                {% for num, name in lunar_months.items() %}
+                <option value="{{ num }}">Tháng {{ name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label">Ngày âm lịch</label>
+              <select class="form-select" id="lunarDay">
+                {% for d in range(1, 31) %}
+                <option value="{{ d }}" {% if d == 1 %}selected{% endif %}>Ngày {{ d }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="mb-3">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="isLeap">
+              <label class="form-check-label" for="isLeap">Tháng nhuận</label>
+            </div>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label">Từ năm</label>
+              <input type="number" class="form-control" id="startYear" value="{{ current_year }}" min="2000" max="2100">
+            </div>
+            <div class="col-6">
+              <label class="form-label">Đến năm</label>
+              <input type="number" class="form-control" id="endYear" value="{{ current_year + 20 }}" min="2000" max="2100">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Nhắc trước (ngày)</label>
+            <input type="number" class="form-control" id="reminderDays" value="7" min="0" max="30">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Ghi chú</label>
+            <textarea class="form-control" id="description" rows="2" placeholder="Tùy chọn..."></textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">
+              <i class="bi bi-envelope-plus me-1"></i>Email thông báo bổ sung
+            </label>
+            <input type="text" class="form-control" id="ccEmails"
+                   placeholder="vd: ba@gmail.com, me@gmail.com">
+            <div class="form-text">Nhập nhiều email cách nhau bằng dấu phẩy. Họ sẽ nhận lời mời và email nhắc nhở.</div>
+          </div>
+          <div class="d-grid gap-2">
+            <button class="btn btn-outline-danger" onclick="previewDates()">
+              <i class="bi bi-calendar3 me-1"></i>Xem trước ngày dương lịch
+            </button>
+            <button class="btn btn-danger" onclick="saveEvent()">
+              <i class="bi bi-save me-1"></i>Lưu sự kiện
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Ghi chú về âm lịch -->
+      <div class="card mt-3">
+        <div class="card-body small text-muted">
+          <i class="bi bi-lightbulb text-warning me-1"></i>
+          <strong>Lưu ý:</strong> Mỗi năm âm lịch, cùng một ngày âm sẽ rơi vào ngày dương khác nhau. App sẽ tính toán và tạo sự kiện riêng cho từng năm trên Google Calendar.
+        </div>
+      </div>
+    </div>
+
+    <!-- Danh sách sự kiện -->
+    <div class="col-lg-8">
+      <h5 class="section-title"><i class="bi bi-list-ul me-2"></i>Danh sách sự kiện ({{ events|length }})</h5>
+
+      {% if not events %}
+      <div class="text-center py-5 text-muted">
+        <i class="bi bi-calendar-x" style="font-size:3rem"></i>
+        <p class="mt-2">Chưa có sự kiện nào. Thêm sự kiện đầu tiên!</p>
+      </div>
+      {% else %}
+      <div class="row g-3">
+        {% for ev in events %}
+        <div class="col-12" id="event-card-{{ ev.id }}">
+          <div class="card event-card">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-start">
+                <div class="flex-grow-1">
+                  <h6 class="mb-1 fw-bold">
+                    {{ ev.name }}
+                    {% if ev.synced_to_google %}
+                    <span class="badge synced-badge ms-1"><i class="bi bi-check-circle me-1"></i>Đã sync Google</span>
+                    {% endif %}
+                  </h6>
+                  <div class="d-flex gap-2 flex-wrap mt-1">
+                    <span class="lunar-badge">
+                      <i class="bi bi-moon me-1"></i>Ngày {{ ev.lunar_day }} tháng {{ ev.month_name }}{% if ev.is_leap %} (nhuận){% endif %}
+                    </span>
+                    <span class="solar-badge">
+                      <i class="bi bi-sun me-1"></i>Dương lịch tiếp: {{ ev.next_date }}
+                    </span>
+                    <span class="badge bg-secondary">
+                      <i class="bi bi-bell me-1"></i>Nhắc {{ ev.reminder_days }} ngày trước
+                    </span>
+                  </div>
+                  {% if ev.description %}
+                  <p class="text-muted small mt-1 mb-0">{{ ev.description }}</p>
+                  {% endif %}
+                  {% if ev.cc_emails %}
+                  <p class="text-muted small mt-1 mb-0">
+                    <i class="bi bi-envelope me-1"></i>{{ ev.cc_emails }}
+                  </p>
+                  {% endif %}
+                  <div class="text-muted small mt-1">Phạm vi: {{ ev.start_year }} – {{ ev.end_year }}</div>
+                </div>
+                <div class="d-flex flex-column gap-1 ms-3">
+                  <button class="btn btn-sm btn-outline-secondary"
+                          onclick="showPreviewForEvent({{ ev.lunar_month }}, {{ ev.lunar_day }}, {{ ev.is_leap|int }}, {{ ev.start_year }}, {{ ev.end_year }}, {{ ev.reminder_days }}, '{{ ev.name }}')">
+                    <i class="bi bi-eye"></i>
+                  </button>
+                  {% if is_google_auth %}
+                  <button class="btn btn-sm btn-outline-danger" onclick="syncToGoogle({{ ev.id }}, this)">
+                    <i class="bi bi-google"></i>
+                  </button>
+                  {% endif %}
+                  <button class="btn btn-sm btn-outline-danger" onclick="deleteEvent({{ ev.id }})">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Xem trước ngày dương lịch -->
+<div class="modal fade" id="previewModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title"><i class="bi bi-calendar3 me-2"></i><span id="previewTitle">Ngày dương lịch tương ứng</span></h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0">
+        <div id="previewLoading" class="text-center py-4 d-none">
+          <div class="spinner-border text-danger"></div>
+        </div>
+        <div id="previewContent"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Hướng dẫn cấu hình Google -->
+<div class="modal fade" id="setupModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-gear me-2"></i>Cấu hình Google Calendar API</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <ol class="list-group list-group-numbered">
+          <li class="list-group-item">Vào <strong>Google Cloud Console</strong>: <code>console.cloud.google.com</code></li>
+          <li class="list-group-item">Tạo project mới hoặc chọn project có sẵn</li>
+          <li class="list-group-item">Bật <strong>Google Calendar API</strong> trong "APIs &amp; Services → Library"</li>
+          <li class="list-group-item">Tạo <strong>OAuth 2.0 credentials</strong> trong "APIs &amp; Services → Credentials" → loại <em>Desktop app</em></li>
+          <li class="list-group-item">Tải file JSON về, đổi tên thành <code>credentials.json</code></li>
+          <li class="list-group-item">Đặt file vào thư mục: <code>/home/tinhvan/apps/lunar-calendar/credentials.json</code></li>
+          <li class="list-group-item">Thêm email của bạn vào "Test users" nếu app ở chế độ Testing</li>
+          <li class="list-group-item">Tải lại trang này và nhấn "Kết nối Google Calendar"</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast thông báo -->
+<div class="toast-container">
+  <div id="appToast" class="toast align-items-center text-white border-0" role="alert">
+    <div class="d-flex">
+      <div class="toast-body" id="toastMsg"></div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+const previewModal = new bootstrap.Modal('#previewModal');
+const toastEl = document.getElementById('appToast');
+const appToast = new bootstrap.Toast(toastEl, { delay: 3500 });
+
+function showToast(msg, type = 'success') {
+  toastEl.className = `toast align-items-center text-white border-0 bg-${type}`;
+  document.getElementById('toastMsg').textContent = msg;
+  appToast.show();
+}
+
+function getFormData() {
+  return {
+    name: document.getElementById('eventName').value.trim(),
+    lunar_month: document.getElementById('lunarMonth').value,
+    lunar_day: document.getElementById('lunarDay').value,
+    is_leap: document.getElementById('isLeap').checked,
+    start_year: document.getElementById('startYear').value,
+    end_year: document.getElementById('endYear').value,
+    reminder_days: document.getElementById('reminderDays').value,
+    description: document.getElementById('description').value.trim(),
+    cc_emails: document.getElementById('ccEmails').value.trim(),
+  };
+}
+
+async function previewDates() {
+  const data = getFormData();
+  if (!data.lunar_month || !data.lunar_day) return;
+  document.getElementById('previewTitle').textContent =
+    data.name ? `${data.name} — Ngày dương lịch tương ứng` : 'Ngày dương lịch tương ứng';
+  previewModal.show();
+  showPreviewData(data);
+}
+
+async function showPreviewForEvent(month, day, leap, startYear, endYear, reminderDays, name) {
+  document.getElementById('previewTitle').textContent = `${name} — Ngày dương lịch tương ứng`;
+  previewModal.show();
+  showPreviewData({ lunar_month: month, lunar_day: day, is_leap: leap, start_year: startYear, end_year: endYear, reminder_days: reminderDays });
+}
+
+async function showPreviewData(data) {
+  document.getElementById('previewLoading').classList.remove('d-none');
+  document.getElementById('previewContent').innerHTML = '';
+  try {
+    const res = await fetch('/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const result = await res.json();
+    document.getElementById('previewLoading').classList.add('d-none');
+    if (!result.success) { document.getElementById('previewContent').innerHTML = `<p class="text-danger p-3">${result.error}</p>`; return; }
+    renderPreviewTable(result.dates, parseInt(data.reminder_days));
+  } catch (e) {
+    document.getElementById('previewLoading').classList.add('d-none');
+    document.getElementById('previewContent').innerHTML = '<p class="text-danger p-3">Lỗi khi tải dữ liệu.</p>';
+  }
+}
+
+function renderPreviewTable(dates, reminderDays) {
+  if (!dates.length) {
+    document.getElementById('previewContent').innerHTML = '<p class="text-warning p-3">Không có ngày hợp lệ nào trong khoảng thời gian này.</p>';
+    return;
+  }
+  const rows = dates.map(d => `
+    <tr class="${d.is_past ? 'past-row' : ''}">
+      <td>${d.lunar_year} <small class="text-muted">(${d.can_chi})</small></td>
+      <td>${d.lunar_str}</td>
+      <td><strong>${d.solar_str}</strong> <span class="text-muted">${d.day_of_week}</span></td>
+      <td>${d.reminder_date}</td>
+      ${d.is_past ? '<td><span class="badge bg-secondary">Đã qua</span></td>' : '<td><span class="badge bg-success">Sắp tới</span></td>'}
+    </tr>`).join('');
+  document.getElementById('previewContent').innerHTML = `
+    <table class="table table-sm table-hover mb-0" id="previewTable">
+      <thead>
+        <tr>
+          <th>Năm</th><th>Ngày âm lịch</th><th>Ngày dương lịch</th>
+          <th>Nhắc nhở trước ${reminderDays} ngày</th><th>Trạng thái</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+async function saveEvent() {
+  const data = getFormData();
+  if (!data.name) { showToast('Vui lòng nhập tên sự kiện', 'danger'); return; }
+  try {
+    const res = await fetch('/save-event', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const result = await res.json();
+    if (result.success) {
+      showToast('Đã lưu sự kiện!');
+      setTimeout(() => location.reload(), 800);
+    }
+  } catch (e) {
+    showToast('Lỗi khi lưu sự kiện', 'danger');
+  }
+}
+
+async function syncToGoogle(id, btn) {
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  try {
+    const res = await fetch(`/sync-to-google/${id}`, { method: 'POST' });
+    const result = await res.json();
+    if (result.success) {
+      showToast(`Đã tạo ${result.created} sự kiện trên Google Calendar!`);
+      setTimeout(() => location.reload(), 1000);
+    } else {
+      showToast(result.error || 'Lỗi đồng bộ', 'danger');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-google"></i>';
+    }
+  } catch (e) {
+    showToast('Lỗi kết nối', 'danger');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-google"></i>';
+  }
+}
+
+async function deleteEvent(id) {
+  if (!confirm('Xóa sự kiện này?')) return;
+  const res = await fetch(`/delete-event/${id}`, { method: 'DELETE' });
+  const result = await res.json();
+  if (result.success) {
+    document.getElementById(`event-card-${id}`).remove();
+    showToast('Đã xóa sự kiện');
+  }
+}
+
+// Tooltip init
+document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => new bootstrap.Tooltip(el));
+
+// Hiển thị thông báo từ URL param
+const urlParams = new URLSearchParams(location.search);
+if (urlParams.get('msg') === 'google_connected') showToast('Đã kết nối Google Calendar thành công!');
+if (urlParams.get('error') === 'no_credentials') showToast('Chưa có credentials.json', 'danger');
+</script>
+</body>
+</html>
