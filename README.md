@@ -10,7 +10,7 @@ Web app chạy local trên Ubuntu, giúp tạo và đồng bộ các sự kiện
 - Đồng bộ lên Google Calendar: tạo all-day event cho từng năm với 3 lớp nhắc nhở
 - Email thông báo bổ sung: thêm CC email (được thêm làm attendee, nhận invitation và reminder)
 - Cảnh báo khi thêm sự kiện trùng ngày âm lịch
-- Xóa sự kiện đồng thời xóa luôn trên Google Calendar
+- Xóa sự kiện đồng thời xóa luôn trên Google Calendar (theo event ID hoặc tìm theo tên)
 - Lưu trữ sự kiện local bằng SQLite
 
 ## Yêu cầu

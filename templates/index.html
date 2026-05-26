@@ -189,8 +189,13 @@
                     <i class="bi bi-eye"></i>
                   </button>
                   {% if is_google_auth %}
-                  <button class="btn btn-sm btn-outline-danger" onclick="syncToGoogle({{ ev.id }}, this)">
+                  <button class="btn btn-sm btn-outline-danger" onclick="syncToGoogle({{ ev.id }}, this)"
+                          data-bs-toggle="tooltip" title="Sync lên Google Calendar">
                     <i class="bi bi-google"></i>
+                  </button>
+                  <button class="btn btn-sm btn-outline-warning" onclick="gcalSearchDelete({{ ev.id }}, this)"
+                          data-bs-toggle="tooltip" title="Xóa tất cả trên Google Calendar (tìm theo tên)">
+                    <i class="bi bi-google"></i><i class="bi bi-x"></i>
                   </button>
                   {% endif %}
                   <button class="btn btn-sm btn-outline-danger" onclick="deleteEvent({{ ev.id }})">
@@ -404,6 +409,25 @@ async function syncToGoogle(id, btn) {
     btn.disabled = false;
     btn.innerHTML = '<i class="bi bi-google"></i>';
   }
+}
+
+async function gcalSearchDelete(id, btn) {
+  if (!confirm('Tìm và xóa TẤT CẢ sự kiện trùng tên trên Google Calendar?\n(Dùng khi sync trước khi có tính năng lưu event ID)')) return;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  try {
+    const res = await fetch(`/gcal-search-delete/${id}`, { method: 'POST' });
+    const result = await res.json();
+    if (result.success) {
+      showToast(`Đã xóa ${result.deleted} sự kiện trên Google Calendar`);
+    } else {
+      showToast(result.error || 'Lỗi', 'danger');
+    }
+  } catch (e) {
+    showToast('Lỗi kết nối', 'danger');
+  }
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-google"></i><i class="bi bi-x"></i>';
 }
 
 async function deleteEvent(id) {

@@ -223,6 +223,55 @@ def delete_event(event_id):
     return jsonify({'success': True, 'gcal_deleted': gcal_deleted, 'gcal_errors': gcal_errors})
 
 
+@app.route('/gcal-search-delete/<int:event_id>', methods=['POST'])
+def gcal_search_delete(event_id):
+    """Tìm kiếm và xóa toàn bộ events trên Google Calendar theo tên — dùng khi chưa có event IDs."""
+    creds = get_google_creds()
+    if not creds:
+        return jsonify({'error': 'Chưa đăng nhập Google'}), 401
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('SELECT * FROM events WHERE id = ?', (event_id,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error': 'Không tìm thấy sự kiện'}), 404
+
+    leap_str = ' (nhuận)' if row['is_leap'] else ''
+    search_query = f"{row['name']} ({row['lunar_day']}/{row['lunar_month']}{leap_str} ÂL)"
+
+    service = build('calendar', 'v3', credentials=creds)
+    deleted = 0
+    errors = []
+    page_token = None
+
+    while True:
+        resp = service.events().list(
+            calendarId='primary',
+            q=search_query,
+            maxResults=250,
+            pageToken=page_token,
+            fields='items(id,summary),nextPageToken',
+        ).execute()
+
+        for ev in resp.get('items', []):
+            if ev.get('summary', '').strip() == search_query:
+                try:
+                    service.events().delete(calendarId='primary', eventId=ev['id']).execute()
+                    deleted += 1
+                except Exception as e:
+                    errors.append(str(e))
+
+        page_token = resp.get('nextPageToken')
+        if not page_token:
+            break
+
+    save_google_creds(creds)
+    return jsonify({'success': True, 'deleted': deleted, 'errors': errors})
+
+
 @app.route('/sync-to-google/<int:event_id>', methods=['POST'])
 def sync_to_google(event_id):
     creds = get_google_creds()
